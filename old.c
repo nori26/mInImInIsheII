@@ -16,7 +16,7 @@ typedef struct TreeNode      TreeNode;
 typedef struct NodeValue     NodeValue;
 typedef enum NodeKind        NodeKind;
 
-static char *const null_ptr_terminator = NULL;
+static const char *null_ptr_terminator = NULL;
 static const char  null_terminator     = '\0';
 
 static const char E_PARSE_ERROR[]  = "error: parse";
@@ -117,12 +117,6 @@ void destruct(void *target)
 		return;
 	}
 	m->destructor(target);
-}
-
-void delete(void *target)
-{
-	destruct(target);
-	free(target);
 }
 
 Vla construct_vla(size_t elem_size, void (*destructor)())
@@ -226,6 +220,12 @@ void delete_subtree(TreeNode *node, void (*del)())
 	free(node);
 	delete_subtree(left, del);
 	delete_subtree(right, del);
+}
+
+void delete(void *target)
+{
+	destruct(target);
+	free(target);
 }
 
 void destruct_program(Program *p)
@@ -458,6 +458,16 @@ pid_t xfork()
 	return pid;
 }
 
+pid_t xwaitpid(pid_t pid, int *status, int option)
+{
+	pid = waitpid(pid, status, option);
+	if (pid == -1 && errno != EINTR && errno != ECHILD) {
+		ft_perror((const char *[]){E_SYS_ERROR, NULL});
+		exit(1);
+	}
+	return pid;
+}
+
 void setup_io_fd_for_pipe(int input_fd)
 {
 	int fds[2];
@@ -475,41 +485,29 @@ void setup_io_fd_for_last(int input_fd)
 	xdup2(input_fd, STDIN_FILENO);
 }
 
-int get_exit_status(int wait_status)
-{
-	if (WIFEXITED(wait_status)) {
-		return WEXITSTATUS(wait_status);
-	} else {
-		return -1;
-	}
-}
-
 int waitpid_all(pid_t last_pid)
 {
 	int last_status;
 
 	while (true) {
 		int   status = 0;
-		pid_t pid    = waitpid(0, &status, 0);
-		if (pid == -1) {
-			if (errno == EINTR) {
-				continue;
-			} else if (errno == ECHILD) {
-				break;
-			} else {
-				ft_perror((const char *[]){E_SYS_ERROR, NULL});
-				exit(1);
-			}
-		} else if (pid == last_pid) {
+		pid_t pid    = xwaitpid(0, &status, 0);
+		if (pid == -1 && errno == EINTR) {
+			continue;
+		}
+		if (pid == -1 && errno == ECHILD) {
+			break;
+		}
+		if (pid == last_pid) {
 			last_status = status;
 		}
 	}
-	return get_exit_status(last_status);
+	return last_status;
 }
 
 int cd(char **argv)
 {
-	if (!argv[1] || argv[2]) {
+	if (!argv || !argv[1] || argv[2]) {
 		ft_perror((const char *[]){E_CD_ARG_ERROR, NULL});
 		return 1;
 	}
@@ -594,7 +592,7 @@ bool is_single_builtin(const TreeNode *statement)
 	if (!is_single_cmd) {
 		return false;
 	}
-	const NodeValue *nv = cmd_node->value;
+	const NodeValue *nv = statement->left->value;
 	if (!nv->value) {
 		return false;
 	}
